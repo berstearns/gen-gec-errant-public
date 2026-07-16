@@ -1,0 +1,52 @@
+# S1 core contrast — ft-gpt2-small (fine-tuned) — CELVA-SP full
+# gen-gec-review-specs/50-dispatch-log.md dispatch #2 (S1 PREP). DO NOT LAUNCH
+# without explicit go-ahead — GPU spend is the user's call (90-open-questions.md #3).
+# Usage: python -m gen_gec_errant.pipeline --config configs/s1-core-contrast/ft-gpt2-small.yaml
+data_loader:
+  data_path: ./data/norm-CELVA-SP.csv
+  text_column: text
+  max_sentences: null
+  min_words: 10
+  max_words: 500
+  prompt_ratio: 0.5
+  min_prompt_words: 5
+  split_sentences: true
+
+generation:
+  max_new_tokens: 50
+  min_new_tokens: 10
+  temperature: 1.0
+  top_k: 50
+  top_p: 0.95
+  do_sample: true
+  repetition_penalty: 1.2
+
+gec:
+  method: dedicated
+  model_id: grammarly/coedit-large
+  batch_size: 32
+  device: auto
+
+annotation:
+  lang: en
+
+analysis:
+  skip_plots: false
+  top_n_error_types: 10
+
+models:
+  - name: ft-gpt2-small
+    hf_model_id: PLACEHOLDER_MODELS_ROOT/gpt2/gpt2-small-all-data/best/checkpoint-7596
+    model_family: gpt2
+    is_learner_tuned: true
+    batch_size: 16
+
+batch_size: 16
+device: auto
+seed: 42
+output_dir: outputs/s1-core-contrast/ft-gpt2-small
+skip_plots: false
+# off: gpt2-small.yaml already produced the reference
+# learner_profile.json; re-running it here would waste GPU on an identical
+# GEC pass over the same reference continuations (dispatch #3).
+include_learner_baseline: false

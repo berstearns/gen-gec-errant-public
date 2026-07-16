@@ -1,0 +1,22 @@
+# Generation — Pythia 70M (native, pre-trained only)
+# Usage: python -m gen_gec_errant.generation --config configs/generation/pythia_70m.yaml
+params:
+  max_new_tokens: 50
+  min_new_tokens: 10
+  temperature: 1.0
+  top_k: 50
+  top_p: 0.95
+  do_sample: true
+  num_return_sequences: 1
+  repetition_penalty: 1.2
+
+model:
+  name: pythia-70m
+  hf_model_id: EleutherAI/pythia-70m
+  checkpoint_path: null
+  model_family: pythia
+  is_learner_tuned: false
+
+batch_size: 8
+device: auto
+seed: 42

@@ -1,0 +1,3 @@
+# ERRANT annotation — default component config
+# Usage: python -m gen_gec_errant.annotation --config configs/annotation/default.yaml
+lang: en

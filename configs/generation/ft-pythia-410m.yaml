@@ -1,0 +1,21 @@
+# Generation — fine-tuned Pythia 410M
+# Usage: python -m gen_gec_errant.generation --config configs/generation/ft-pythia-410m.yaml
+params:
+  max_new_tokens: 50
+  min_new_tokens: 10
+  temperature: 1.0
+  top_k: 50
+  top_p: 0.95
+  do_sample: true
+  num_return_sequences: 1
+  repetition_penalty: 1.2
+
+model:
+  name: ft-pythia-410m
+  hf_model_id: PLACEHOLDER_MODELS_ROOT/pythia/pythia-410m-all-data/final
+  model_family: pythia
+  is_learner_tuned: true
+
+batch_size: 8
+device: auto
+seed: 42

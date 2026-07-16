@@ -1,0 +1,46 @@
+# SmolLM2 1.7B (native) — Full CELVA-SP dataset
+# Usage: python -m gen_gec_errant.pipeline --config configs/full-celva/full-celva-base-smollm2-1.7b.yaml
+data_loader:
+  data_path: ./data/norm-CELVA-SP.csv
+  text_column: text
+  max_sentences: 10
+  min_words: 10
+  max_words: 500
+  prompt_ratio: 0.5
+  min_prompt_words: 5
+  split_sentences: true
+
+generation:
+  max_new_tokens: 50
+  min_new_tokens: 10
+  temperature: 1.0
+  top_k: 50
+  top_p: 0.95
+  do_sample: true
+  repetition_penalty: 1.2
+
+gec:
+  method: dedicated
+  model_id: grammarly/coedit-large
+  batch_size: 4
+  device: auto
+
+annotation:
+  lang: en
+
+analysis:
+  skip_plots: false
+  top_n_error_types: 10
+
+models:
+  - name: base-smollm2-1.7b
+    hf_model_id: HuggingFaceTB/SmolLM2-1.7B
+    model_family: smollm2
+    is_learner_tuned: false
+
+batch_size: 2
+device: auto
+seed: 42
+output_dir: outputs/full-celva-base-smollm2-1.7b
+skip_plots: false
+include_learner_baseline: true

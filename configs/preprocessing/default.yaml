@@ -1,0 +1,11 @@
+# Preprocessing — EFCAMDAT sentence extraction
+# Usage: python -m gen_gec_errant.preprocessing --config configs/preprocessing/default.yaml
+input_path: data/cleaned_efcamdat.csv
+output_path: data/efcamdat_sentences.csv
+min_words: 5
+max_words: 60
+max_essays: null
+cefr_filter: null
+l1_filter: null
+text_col: null
+corrected_col: null

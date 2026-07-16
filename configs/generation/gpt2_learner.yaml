@@ -1,0 +1,24 @@
+# Generation — GPT-2 with learner checkpoint (template)
+# Usage: python -m gen_gec_errant.generation --config configs/generation/gpt2_learner.yaml
+#
+# Set checkpoint_path to your .pt file before running.
+params:
+  max_new_tokens: 50
+  min_new_tokens: 10
+  temperature: 1.0
+  top_k: 50
+  top_p: 0.95
+  do_sample: true
+  num_return_sequences: 1
+  repetition_penalty: 1.2
+
+model:
+  name: gpt2-learner
+  hf_model_id: gpt2
+  checkpoint_path: SET_YOUR_PATH  # path to .pt checkpoint
+  model_family: gpt2
+  is_learner_tuned: true
+
+batch_size: 8
+device: auto
+seed: 42

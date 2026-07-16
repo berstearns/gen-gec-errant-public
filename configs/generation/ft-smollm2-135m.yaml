@@ -1,0 +1,21 @@
+# Generation — fine-tuned SmolLM2 135M
+# Usage: python -m gen_gec_errant.generation --config configs/generation/ft-smollm2-135m.yaml
+params:
+  max_new_tokens: 50
+  min_new_tokens: 10
+  temperature: 1.0
+  top_k: 50
+  top_p: 0.95
+  do_sample: true
+  num_return_sequences: 1
+  repetition_penalty: 1.2
+
+model:
+  name: ft-smollm2-135m
+  hf_model_id: PLACEHOLDER_MODELS_ROOT/smollm2/smollm2-135m-all-data/final
+  model_family: smollm2
+  is_learner_tuned: true
+
+batch_size: 8
+device: auto
+seed: 42

@@ -1,0 +1,69 @@
+# Expected outputs — validation manifest for enforcer checks
+# Defines required files, plots, and model outputs per dataset.
+# Used by deploy/enforcers/ to verify pipeline completeness.
+gdrive_base: i:/_p/artificial-learners/generation-gec-errant/outputs
+
+# ── 3 dataset output directories ─────────────────────────────────────
+datasets:
+  - celva-sp
+  - efcamdat-test
+  - kupa-keys
+
+# ── 24 models + learner baseline (same across all datasets) ──────────
+models:
+  # GPT-2 native
+  - gpt2-small
+  - gpt2-medium
+  - gpt2-large
+  # GPT-2 fine-tuned
+  - ft-gpt2-small
+  - ft-gpt2-medium
+  - ft-gpt2-large
+  # Pythia native
+  - pythia-70m
+  - pythia-160m
+  - pythia-410m
+  - pythia-1b
+  - pythia-1.4b
+  # Pythia fine-tuned
+  - ft-pythia-70m
+  - ft-pythia-160m
+  - ft-pythia-410m
+  - ft-pythia-1b
+  - ft-pythia-1.4b
+  # SmolLM2 native
+  - smollm2-135m
+  - smollm2-360m
+  - smollm2-1.7b
+  # SmolLM2 fine-tuned
+  - ft-smollm2-135m
+  - ft-smollm2-360m
+  - ft-smollm2-1.7b
+  # Baseline
+  - learner-baseline
+
+# ── Required files per dataset directory ─────────────────────────────
+# These must exist in each {gdrive_base}/{dataset}/ folder.
+
+# Core data files (model-independent)
+required_files:
+  - raw_results.json
+  - prompts.json
+  - model_comparison.json
+  - full_results.tsv
+  - errors_long_format.tsv
+
+# Per-model summary JSONs — enforcer derives: {model}_summary.json
+# from the models list above (25 files per dataset)
+
+# Plots (all models combined in each plot)
+required_plots:
+  - plots/perplexity_comparison.png
+  - plots/error_comparison.png
+  - plots/error_type_breakdown.png
+  - plots/ppl_vs_errors_scatter.png
+  - plots/combined_metric.png
+
+# ── Total expected ───────────────────────────────────────────────────
+# Per dataset: 5 core + 25 summaries + 5 plots = 35 files
+# Grand total: 3 datasets x 35 files = 105 files

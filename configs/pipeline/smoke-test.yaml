@@ -1,0 +1,45 @@
+# Smoke test — minimal GPU validation after remote setup
+# Runs 3 sentences through gpt2-base on GPU, writes to explicit output folder.
+# Fits comfortably in 24GB VRAM: gpt2-base ~0.5GB + coedit-large ~3GB
+#
+# Usage:
+#   python -m gen_gec_errant.pipeline --config configs/pipeline/smoke-test.yaml
+data_loader:
+  data_path: data/dummy_input.txt
+  max_sentences: 3
+  min_words: 3
+  max_words: 100
+  prompt_ratio: 0.5
+
+generation:
+  max_new_tokens: 20
+  min_new_tokens: 5
+  temperature: 1.0
+  top_k: 50
+  top_p: 0.95
+  do_sample: true
+  repetition_penalty: 1.2
+
+gec:
+  method: dedicated
+  model_id: grammarly/coedit-large
+  batch_size: 8
+
+annotation:
+  lang: en
+
+analysis:
+  skip_plots: true
+  top_n_error_types: 10
+
+models:
+  - name: gpt2-base
+    hf_model_id: gpt2
+    model_family: gpt2
+
+batch_size: 4
+device: auto
+seed: 42
+output_dir: outputs/smoke-test-dummy
+skip_plots: true
+include_learner_baseline: false

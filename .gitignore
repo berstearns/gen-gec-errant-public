@@ -1,0 +1,16 @@
+.env
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+*.pt
+*.bin
+*.safetensors
+results/
+outputs/
+data/
+models/
+.ipynb_checkpoints/
+__marimo__/

@@ -1,0 +1,14 @@
+# GEC — Gemma-2 2B IT, LLM-based correction
+# Usage: python -m gen_gec_errant.gec --config configs/gec/gemma.yaml
+method: llm
+model_id: google/gemma-2-2b-it
+prompt_template: >-
+  Correct any grammatical errors in the following sentence.
+  Only fix grammar — do not change meaning, vocabulary, or style.
+  If the sentence is already correct, return it unchanged.
+
+  Sentence: {sentence}
+
+  Corrected sentence:
+batch_size: 32
+device: auto

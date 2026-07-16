@@ -1,0 +1,10 @@
+# Data loader — default component config
+# Usage: python -m gen_gec_errant.data_loader --config configs/data_loader/default.yaml
+data_path: data/efcamdat_sentences.txt
+max_sentences: null
+min_words: 10
+max_words: 10000
+prompt_ratio: 0.5
+min_prompt_words: 3
+split_sentences: true
+text_column: null

@@ -1,0 +1,170 @@
+# EFCAMDAT test full benchmark — 24 models (GPT-2 + Pythia + SmolLM2, native + fine-tuned)
+# Usage (on vastai):
+#   cd /workspace/automatic-generation-correction-errortagging-v2
+#   python -m gen_gec_errant.pipeline --config configs/pipeline/efcamdat-test-all-models.yaml
+data_loader:
+  data_path: /workspace/data/norm-EFCAMDAT-test.csv
+  text_column: text
+  max_sentences: null
+  min_words: 10
+  max_words: 500
+  prompt_ratio: 0.5
+  min_prompt_words: 5
+  split_sentences: true
+
+generation:
+  max_new_tokens: 50
+  min_new_tokens: 10
+  temperature: 1.0
+  top_k: 50
+  top_p: 0.95
+  do_sample: true
+  repetition_penalty: 1.2
+
+gec:
+  method: dedicated
+  model_id: grammarly/coedit-large
+  batch_size: 64
+  device: auto
+
+annotation:
+  lang: en
+
+analysis:
+  skip_plots: false
+  top_n_error_types: 10
+
+models:
+  # --- GPT-2 native (~500MB, ~1.5GB, ~3GB) ---
+  - name: gpt2-small
+    hf_model_id: gpt2
+    model_family: gpt2
+    batch_size: 1024
+
+  - name: gpt2-medium
+    hf_model_id: gpt2-medium
+    model_family: gpt2
+    batch_size: 512
+
+  - name: gpt2-large
+    hf_model_id: gpt2-large
+    model_family: gpt2
+    batch_size: 192
+
+  # --- GPT-2 fine-tuned (same sizes as native) ---
+  - name: ft-gpt2-small
+    hf_model_id: /workspace/ft-models/gpt2/gpt2-small-all-data/best/checkpoint-7596
+    model_family: gpt2
+    is_learner_tuned: true
+    batch_size: 1024
+
+  - name: ft-gpt2-medium
+    hf_model_id: /workspace/ft-models/gpt2/gpt2-medium-all-data/best/checkpoint-5625
+    model_family: gpt2
+    is_learner_tuned: true
+    batch_size: 512
+
+  - name: ft-gpt2-large
+    hf_model_id: /workspace/ft-models/gpt2/gpt2-large-all-data/best/checkpoint-6750
+    model_family: gpt2
+    is_learner_tuned: true
+    batch_size: 192
+
+  # --- Pythia native (~280MB to ~5.6GB) ---
+  - name: pythia-70m
+    hf_model_id: EleutherAI/pythia-70m
+    model_family: pythia
+    batch_size: 1024
+
+  - name: pythia-160m
+    hf_model_id: EleutherAI/pythia-160m
+    model_family: pythia
+    batch_size: 1024
+
+  - name: pythia-410m
+    hf_model_id: EleutherAI/pythia-410m
+    model_family: pythia
+    batch_size: 512
+
+  - name: pythia-1b
+    hf_model_id: EleutherAI/pythia-1b
+    model_family: pythia
+    batch_size: 256
+
+  - name: pythia-1.4b
+    hf_model_id: EleutherAI/pythia-1.4b
+    model_family: pythia
+    batch_size: 192
+
+  # --- Pythia fine-tuned (same sizes as native) ---
+  - name: ft-pythia-70m
+    hf_model_id: /workspace/ft-models/pythia/pythia-70m-all-data/final
+    model_family: pythia
+    is_learner_tuned: true
+    batch_size: 1024
+
+  - name: ft-pythia-160m
+    hf_model_id: /workspace/ft-models/pythia/pythia-160m-all-data/final
+    model_family: pythia
+    is_learner_tuned: true
+    batch_size: 1024
+
+  - name: ft-pythia-410m
+    hf_model_id: /workspace/ft-models/pythia/pythia-410m-all-data/final
+    model_family: pythia
+    is_learner_tuned: true
+    batch_size: 512
+
+  - name: ft-pythia-1b
+    hf_model_id: /workspace/ft-models/pythia/pythia-1b-all-data/final
+    model_family: pythia
+    is_learner_tuned: true
+    batch_size: 256
+
+  - name: ft-pythia-1.4b
+    hf_model_id: /workspace/ft-models/pythia/pythia-1.4b-all-data/final
+    model_family: pythia
+    is_learner_tuned: true
+    batch_size: 192
+
+  # --- SmolLM2 native (~540MB, ~1.4GB, ~6.8GB) ---
+  - name: smollm2-135m
+    hf_model_id: HuggingFaceTB/SmolLM2-135M
+    model_family: smollm2
+    batch_size: 1024
+
+  - name: smollm2-360m
+    hf_model_id: HuggingFaceTB/SmolLM2-360M
+    model_family: smollm2
+    batch_size: 512
+
+  - name: smollm2-1.7b
+    hf_model_id: HuggingFaceTB/SmolLM2-1.7B
+    model_family: smollm2
+    batch_size: 192
+
+  # --- SmolLM2 fine-tuned (same sizes as native) ---
+  - name: ft-smollm2-135m
+    hf_model_id: /workspace/ft-models/smollm2/smollm2-135m-all-data/final
+    model_family: smollm2
+    is_learner_tuned: true
+    batch_size: 1024
+
+  - name: ft-smollm2-360m
+    hf_model_id: /workspace/ft-models/smollm2/smollm2-360m-all-data/final
+    model_family: smollm2
+    is_learner_tuned: true
+    batch_size: 512
+
+  - name: ft-smollm2-1.7b
+    hf_model_id: /workspace/ft-models/smollm2/smollm2-1.7b-all-data/final
+    model_family: smollm2
+    is_learner_tuned: true
+    batch_size: 192
+
+batch_size: 32
+device: auto
+seed: 42
+output_dir: /workspace/gec-results/efcamdat-test
+skip_plots: false
+include_learner_baseline: true

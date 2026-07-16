@@ -1,0 +1,6 @@
+# GEC — coedit-large dedicated correction model
+# Usage: python -m gen_gec_errant.gec --config configs/gec/default.yaml
+method: dedicated
+model_id: grammarly/coedit-large
+batch_size: 32
+device: auto

@@ -1,0 +1,5 @@
+# Analysis — default component config
+# Usage: python -m gen_gec_errant.analysis --config configs/analysis/default.yaml
+output_dir: results
+skip_plots: false
+top_n_error_types: 10
