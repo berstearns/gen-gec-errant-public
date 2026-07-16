@@ -162,6 +162,14 @@ class Broker(Protocol):
         """
         ...
 
+    def publish(self, local_dir: Path, dest: str) -> str:  # pragma: no cover - protocol
+        """Push a finished results directory to a durable sink; return where it landed.
+
+        Symmetric to ``acquire``: the OUTPUT side of the broker. ``dest`` is a
+        filesystem path (local/gdrive) or an ``rclone`` target (``remote:path``).
+        """
+        ...
+
 
 class _BaseBroker:
     """Shared idempotency + verification wrapper. Subclasses implement ``_fetch``."""
@@ -204,6 +212,22 @@ class _BaseBroker:
 
     def _fetch(self, spec: ResourceSpec, target: Path) -> None:  # pragma: no cover
         raise NotImplementedError
+
+    def publish(self, local_dir: Path, dest: str) -> str:
+        """Default sink = a filesystem copy (covers ``local`` + mounted ``gdrive``).
+        Copies ``local_dir`` → ``dest`` (no-op when they are the same path); verifies
+        the destination is non-empty. rclone/fserve override this."""
+        src = Path(local_dir)
+        if not src.is_dir():
+            raise RuntimeError(f"[{self.name}] publish: results dir not found: {src}")
+        d = Path(dest)
+        if d.resolve() != src.resolve():
+            d.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(src, d, dirs_exist_ok=True)
+        if not any(d.iterdir()):
+            raise RuntimeError(f"[{self.name}] publish: sink {d} is empty after copy")
+        print(f"  [{self.name}] published results → {d}")
+        return str(d)
 
 
 # ── Backends ─────────────────────────────────────────────────────────────
@@ -273,18 +297,19 @@ class RcloneBroker(_BaseBroker):
             "curl -fsSL https://rclone.org/install.sh | sudo bash", shell=True
         )
 
-    def _ensure_remote(self) -> None:
+    def _ensure_remote(self, remote: Optional[str] = None) -> None:
         """Fail LOUD if the remote isn't configured on this runtime — so a missing
         rclone.conf (e.g. a fresh Colab VM) can never become a raw ``rclone copy``
         exit-1. On Colab the fix is BROKER=gdrive (Drive is mounted, no rclone)."""
+        remote = remote or self.remote
         cmd = ["rclone", "listremotes"]
         if self.conf_path:
             cmd += ["--config", self.conf_path]
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         remotes = {ln.strip() for ln in out.stdout.splitlines() if ln.strip()}
-        if self.remote not in remotes:
+        if remote not in remotes:
             raise RuntimeError(
-                f"rclone broker: remote {self.remote!r} not found on this runtime "
+                f"rclone broker: remote {remote!r} not found on this runtime "
                 f"(no rclone.conf with that remote). Set GGE_RCLONE_CONF_PATH to a delivered "
                 f"rclone.conf, or — on Colab — use BROKER=gdrive (Drive is mounted; no rclone/conf needed)."
             )
@@ -304,6 +329,25 @@ class RcloneBroker(_BaseBroker):
         cmd += [src, dst, "--progress"]
         print(f"  [rclone] {' '.join(cmd)}")
         subprocess.check_call(cmd)
+
+    def publish(self, local_dir: Path, dest: str) -> str:
+        """Push a results dir to a durable rclone target ``dest`` (``remote:path`` —
+        a *different* remote/bucket from the input, e.g. S3/B2). Fails loud if the
+        dest remote isn't configured. Returns the ``dest`` it copied to."""
+        src = Path(local_dir)
+        if not src.is_dir():
+            raise RuntimeError(f"[rclone] publish: results dir not found: {src}")
+        self._ensure_rclone()
+        dest_remote = (dest.split(":", 1)[0] + ":") if ":" in dest else self.remote
+        self._ensure_remote(dest_remote)
+        cmd = ["rclone", "copy", str(src), dest]
+        if self.conf_path:
+            cmd += ["--config", self.conf_path]
+        cmd += ["--progress"]
+        print(f"  [rclone] publish: {' '.join(cmd)}")
+        subprocess.check_call(cmd)
+        print(f"  [rclone] published results → {dest}")
+        return dest
 
 
 class FserveBroker(_BaseBroker):
@@ -364,6 +408,14 @@ class FserveBroker(_BaseBroker):
         target.mkdir(parents=True, exist_ok=True)
         subprocess.check_call(["tar", "-xf", str(tarball), "-C", str(target), "--strip-components=1"])
         shutil.rmtree(staging, ignore_errors=True)
+
+    def publish(self, local_dir: Path, dest: str) -> str:
+        # fserve is a SERVER (it hands files out), not a sink (it doesn't receive) —
+        # publishing results to it makes no sense. Use rclone / gdrive / local instead.
+        raise NotImplementedError(
+            "fserve is a share server, not an output sink — set GGE_OUTPUT_BROKER to "
+            "rclone (a durable remote:path), gdrive (mounted Drive), or local."
+        )
 
 
 class HfBroker(_BaseBroker):
