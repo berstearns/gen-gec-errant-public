@@ -273,11 +273,28 @@ class RcloneBroker(_BaseBroker):
             "curl -fsSL https://rclone.org/install.sh | sudo bash", shell=True
         )
 
+    def _ensure_remote(self) -> None:
+        """Fail LOUD if the remote isn't configured on this runtime — so a missing
+        rclone.conf (e.g. a fresh Colab VM) can never become a raw ``rclone copy``
+        exit-1. On Colab the fix is BROKER=gdrive (Drive is mounted, no rclone)."""
+        cmd = ["rclone", "listremotes"]
+        if self.conf_path:
+            cmd += ["--config", self.conf_path]
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        remotes = {ln.strip() for ln in out.stdout.splitlines() if ln.strip()}
+        if self.remote not in remotes:
+            raise RuntimeError(
+                f"rclone broker: remote {self.remote!r} not found on this runtime "
+                f"(no rclone.conf with that remote). Set GGE_RCLONE_CONF_PATH to a delivered "
+                f"rclone.conf, or — on Colab — use BROKER=gdrive (Drive is mounted; no rclone/conf needed)."
+            )
+
     def _remote_path(self, spec: ResourceSpec) -> str:
         return self.remote + _drive_relpath(spec)
 
     def _fetch(self, spec: ResourceSpec, target: Path) -> None:
         self._ensure_rclone()
+        self._ensure_remote()
         src = self._remote_path(spec)
         cmd = ["rclone", "copy"]
         if self.conf_path:
