@@ -14,3 +14,6 @@ data/
 models/
 .ipynb_checkpoints/
 __marimo__/
+# baked private notebook artifacts (make-private-notebook.sh) — never commit
+*.PRIVATE.ipynb
+*.PRIVATE.py
