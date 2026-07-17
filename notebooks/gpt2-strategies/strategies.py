@@ -68,7 +68,11 @@ class SentenceStopCriteria(StoppingCriteria):
     def __init__(self, tokenizer, prompt_lens: torch.Tensor):
         self.tok = tokenizer
         self.prompt_lens = prompt_lens
-        self.done = torch.zeros(len(prompt_lens), dtype=torch.bool)
+        # Must live on the SAME device as the generation: transformers combines this criteria's
+        # return with `unfinished_sequences` (on the model's device), so a CPU tensor raises a
+        # device mismatch the moment the matrix runs on the T4. prompt_lens is derived from the
+        # already-moved `inputs`, so it is the model's device by construction.
+        self.done = torch.zeros(len(prompt_lens), dtype=torch.bool, device=prompt_lens.device)
 
     def __call__(self, input_ids: torch.LongTensor, scores, **kwargs) -> torch.BoolTensor:
         for i in range(input_ids.shape[0]):
