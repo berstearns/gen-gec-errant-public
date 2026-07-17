@@ -23,6 +23,7 @@ from __future__ import annotations
 import gc
 import json
 import math
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -44,6 +45,23 @@ from gen_gec_errant.data_loader.config import DataLoaderConfig
 from gen_gec_errant.pipeline.runner import _serialize_annotations
 
 STRATEGIES = ["hard_cap", "natural_eos", "sentence_stop"]
+# GGE_STRATEGIES (comma-sep subset, e.g. "sentence_stop") restricts the run to those strategies —
+# the unselected generate passes are SKIPPED entirely (an S1 full-corpus run of sentence_stop alone
+# is ~10x cheaper than the 3-strategy matrix: the other two write ~6.3x the learner's length and
+# GEC/ERRANT time scales with text volume). Unset/empty = all three. Unknown names fail loud.
+# Read via layered_get (env > .env > Colab userdata > default) so every delivery channel works;
+# fall back to the bare env off-tree (layered_get needs the installed package).
+try:
+    from gen_gec_errant.nbenv import layered_get as _layered_get
+    _env_strategies = _layered_get("GGE_STRATEGIES", "").strip()
+except ImportError:
+    _env_strategies = os.environ.get("GGE_STRATEGIES", "").strip()
+if _env_strategies:
+    _requested = [x.strip() for x in _env_strategies.split(",") if x.strip()]
+    _unknown = [x for x in _requested if x not in STRATEGIES]
+    if _unknown:
+        raise ValueError(f"GGE_STRATEGIES has unknown strategies {_unknown}; valid: {STRATEGIES}")
+    STRATEGIES = [s for s in STRATEGIES if s in _requested]   # canonical order preserved
 # length_matched (an oracle length-ceiling that TRUNCATED hard_cap to the learner's own token
 # length, forcing length_ratio ≈ 1.0 by construction) was DROPPED per REALIGN / DISPATCH #11:
 # truncation contaminates the error comparison. There is no oracle strategy now — every strategy
@@ -112,9 +130,10 @@ def _gen(model, tok, inputs, prompt_lens, *, min_new, max_new, criteria=None):
 def generate_all_strategies(model, tok, prompts: List[str], references: List[str],
                             device, batch_size: int = 8) -> Dict[str, dict]:
     """Return {strategy: {continuations, stop_reasons, truncated}} for one model.
-    Two generate passes: natural (min=1) drives natural_eos + sentence_stop; forced (min=max)
-    drives hard_cap. (``references`` is retained for signature stability — the length_matched
-    oracle that consumed it was dropped per REALIGN / DISPATCH #11.)"""
+    Up to three generate passes — natural (min=1) for natural_eos, forced (min=max) for hard_cap,
+    criteria-stopped for sentence_stop — each run only if selected in STRATEGIES (GGE_STRATEGIES).
+    (``references`` is retained for signature stability — the length_matched oracle that consumed
+    it was dropped per REALIGN / DISPATCH #11.)"""
     out = {s: {"continuations": [], "stop_reasons": [], "truncated": []} for s in STRATEGIES}
 
     for i in range(0, len(prompts), batch_size):
@@ -122,27 +141,39 @@ def generate_all_strategies(model, tok, prompts: List[str], references: List[str
         inputs = tok(bp, return_tensors="pt", padding=True, truncation=True, max_length=512).to(device)
         plens = inputs["attention_mask"].sum(dim=1)
 
-        nat, nat_len = _gen(model, tok, inputs, plens, min_new=1, max_new=MAX_NEW)
-        cap, _ = _gen(model, tok, inputs, plens, min_new=MAX_NEW, max_new=MAX_NEW)
-        sent, _ = _gen(model, tok, inputs, plens, min_new=1, max_new=MAX_NEW,
-                       criteria=SentenceStopCriteria(tok, plens))
+        # Each pass runs ONLY if its strategy is selected (GGE_STRATEGIES) — skipping a pass skips
+        # its GPU time and its share of downstream GEC/ERRANT. In full (default) mode the pass
+        # order is unchanged, so 3-strategy runs consume the RNG stream exactly as before.
+        if "natural_eos" in STRATEGIES:
+            nat, nat_len = _gen(model, tok, inputs, plens, min_new=1, max_new=MAX_NEW)
+        if "hard_cap" in STRATEGIES:
+            cap, _ = _gen(model, tok, inputs, plens, min_new=MAX_NEW, max_new=MAX_NEW)
+        if "sentence_stop" in STRATEGIES:
+            sent, sent_len = _gen(model, tok, inputs, plens, min_new=1, max_new=MAX_NEW,
+                                  criteria=SentenceStopCriteria(tok, plens))
 
         for b in range(len(bp)):
-            # natural_eos: EOS fired if it stopped before the cap
-            out["natural_eos"]["continuations"].append(nat[b])
-            eos = nat_len[b] < MAX_NEW
-            out["natural_eos"]["stop_reasons"].append("eos" if eos else "cap")
-            out["natural_eos"]["truncated"].append(not eos)
-            # hard_cap: forced 64
-            out["hard_cap"]["continuations"].append(cap[b])
-            out["hard_cap"]["stop_reasons"].append("cap")
-            out["hard_cap"]["truncated"].append(True)
-            # sentence_stop: cut at first terminator
-            st = _truncate_at_sentence(sent[b])
-            had_end = any(c in sent[b] for c in SENTENCE_ENDERS)
-            out["sentence_stop"]["continuations"].append(st)
-            out["sentence_stop"]["stop_reasons"].append("sentence" if had_end else ("eos" if nat_len[b] < MAX_NEW else "cap"))
-            out["sentence_stop"]["truncated"].append(had_end)
+            if "natural_eos" in STRATEGIES:
+                # natural_eos: EOS fired if it stopped before the cap
+                out["natural_eos"]["continuations"].append(nat[b])
+                eos = nat_len[b] < MAX_NEW
+                out["natural_eos"]["stop_reasons"].append("eos" if eos else "cap")
+                out["natural_eos"]["truncated"].append(not eos)
+            if "hard_cap" in STRATEGIES:
+                # hard_cap: forced 64
+                out["hard_cap"]["continuations"].append(cap[b])
+                out["hard_cap"]["stop_reasons"].append("cap")
+                out["hard_cap"]["truncated"].append(True)
+            if "sentence_stop" in STRATEGIES:
+                # sentence_stop: cut at first terminator; when none appeared, classify by THIS
+                # pass's own length (the old code proxied via the natural pass's length, which is
+                # unavailable when natural_eos is deselected — and was the wrong pass anyway).
+                st = _truncate_at_sentence(sent[b])
+                had_end = any(c in sent[b] for c in SENTENCE_ENDERS)
+                out["sentence_stop"]["continuations"].append(st)
+                out["sentence_stop"]["stop_reasons"].append(
+                    "sentence" if had_end else ("eos" if sent_len[b] < MAX_NEW else "cap"))
+                out["sentence_stop"]["truncated"].append(had_end)
     return out
 
 
@@ -254,17 +285,31 @@ def verify_finetune(al_path: str, control_hf_id: str, *, eps: float = 1e-3) -> d
 
 def run_experiment(pairs, model_paths: Dict[str, str], model_cfgs: Dict[str, ModelConfig],
                    dataset_path: str, out_root: str, *, max_sentences=20, seed: int = 42,
-                   gec_model_id="grammarly/coedit-large", device=None, log=print) -> dict:
+                   item_range=None, gec_model_id="grammarly/coedit-large", device=None,
+                   log=print) -> dict:
     """Run every (model × strategy), reuse two_signal per (strategy, pair). Returns an aggregate.
 
     ``model_paths`` maps a registry key → a local model path (AL checkpoints resolved by the
     broker; controls = their HF id). Writes one run dir per strategy under ``out_root``.
     ``seed`` makes the (sampled, do_sample=True) generation reproducible — re-applied before EACH
-    source so a source's continuations do not depend on how many other sources ran first."""
+    source so a source's continuations do not depend on how many other sources ran first.
+    ``item_range=(lo, hi)`` slices the loader's (deterministic) item list to one shard — the
+    Colab-disconnect insurance for full-corpus runs: each shard writes its own run dir, so a lost
+    session costs one shard, not the run. Use with max_sentences=None so every shard slices the
+    same full list; point each shard at its OWN out_root (the caller owns dir naming)."""
     device = device or get_device("auto")
     dl = DataLoaderConfig(data_path=dataset_path, text_column="text", max_sentences=max_sentences,
                           min_words=10, max_words=500, prompt_ratio=0.5, min_prompt_words=5)
     items = run_data_loader(dl)
+    if item_range is not None:
+        lo, hi = int(item_range[0]), int(item_range[1])
+        if not (0 <= lo < hi):
+            raise ValueError(f"item_range must satisfy 0 <= lo < hi, got {item_range}")
+        n_full = len(items)
+        items = items[lo:hi]
+        if not items:
+            raise ValueError(f"item_range {lo}:{hi} selects 0 of {n_full} items — nothing to run")
+        log(f"[strategies] item_range {lo}:{hi} -> {len(items)} of {n_full} items")
     prompts = [it["prompt"] for it in items]
     references = [it["reference"] for it in items]
     log(f"[strategies] {len(items)} items; device={device}; strategies={STRATEGIES}")
