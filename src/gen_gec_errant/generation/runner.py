@@ -27,7 +27,11 @@ def load_model(model_config: ModelConfig, device: torch.device) -> tuple:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    dtype = torch.float16 if device.type == "cuda" else torch.float32
+    # fp16 on cuda ONLY for the gpt2 family (the locked, verified pipeline — byte-unchanged).
+    # Llama-family models (smollm2) run fp16 into an opaque CUDA device-side assert during sampled
+    # (multinomial) generation; smollm2/pythia/etc. use fp32 on cuda (360M fp32 fits a 16GB T4).
+    use_fp16 = device.type == "cuda" and getattr(model_config, "model_family", None) == "gpt2"
+    dtype = torch.float16 if use_fp16 else torch.float32
     model = AutoModelForCausalLM.from_pretrained(
         model_config.hf_model_id, torch_dtype=dtype,
     )
