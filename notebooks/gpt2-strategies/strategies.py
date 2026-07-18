@@ -283,6 +283,19 @@ def verify_finetune(al_path: str, control_hf_id: str, *, eps: float = 1e-3) -> d
 
 # ── orchestration ───────────────────────────────────────────────────────────
 
+_KNOWN_FAMILIES = {"gpt2", "smollm2", "pythia"}
+
+
+def _family_out_base(pairs, model_cfgs: Dict[str, ModelConfig], out_root: str) -> Path:
+    """Output subdir derived from the AL side of the first pair, so a smollm2 run
+    writes ``smollm2-strategies/`` and never overwrites the gpt2 dead-heat dirs.
+    Falls back to ``gpt2-strategies`` only when the family is missing/unknown."""
+    al_key = next(iter(pairs))[0] if pairs else None
+    al_family = model_cfgs[al_key].model_family if al_key in model_cfgs else None
+    family = al_family if al_family in _KNOWN_FAMILIES else "gpt2"
+    return Path(out_root) / f"{family}-strategies"
+
+
 def run_experiment(pairs, model_paths: Dict[str, str], model_cfgs: Dict[str, ModelConfig],
                    dataset_path: str, out_root: str, *, max_sentences=20, seed: int = 42,
                    item_range=None, gec_model_id="grammarly/coedit-large", device=None,
@@ -350,7 +363,8 @@ def run_experiment(pairs, model_paths: Dict[str, str], model_cfgs: Dict[str, Mod
                                     [0.0] * len(items))   # authentic-learner yardstick (fixed across strategies)
     lp = _learner_profile(learner_block)
 
-    out_base = Path(out_root) / "gpt2-strategies"
+    out_base = _family_out_base(pairs, model_cfgs, out_root)
+    log(f"[strategies] out_base={out_base}")
     strat_dirs = {}
     for s in STRATEGIES:
         raw = {"learner_baseline": learner_block}
