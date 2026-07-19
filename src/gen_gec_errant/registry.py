@@ -178,6 +178,17 @@ MODEL_REGISTRY: Dict[str, ModelConfig] = {
         gec_batch_size=16,
         description="Pythia 1.4B fine-tuned on EFCAMDAT all-data",
     ),
+    "pythia-410m-native": ModelConfig(
+        name="pythia-410m-native",
+        params="410M",
+        hf_model_id="EleutherAI/pythia-410m",
+        model_family="pythia",
+        gdrive_subpath=None,
+        is_learner_tuned=False,
+        batch_size=8,
+        gec_batch_size=32,
+        description="Pythia 410M native (zero-shot baseline; matched control for ft-pythia-410m)",
+    ),
     # ── SmolLM2 fine-tuned ──
     "ft-smollm2-135m": ModelConfig(
         name="ft-smollm2-135m",
