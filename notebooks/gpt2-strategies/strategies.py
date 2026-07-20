@@ -287,10 +287,15 @@ _KNOWN_FAMILIES = {"gpt2", "smollm2", "pythia"}
 
 
 def _family_out_base(pairs, model_cfgs: Dict[str, ModelConfig], out_root: str) -> Path:
-    """Output subdir derived from the AL side of the first pair, so a smollm2 run
-    writes ``smollm2-strategies/`` and never overwrites the gpt2 dead-heat dirs.
-    Falls back to ``gpt2-strategies`` only when the family is missing/unknown."""
+    """Output subdir derived from the AL MODEL KEY of the first pair, e.g.
+    ``ft-gpt2-medium-strategies/`` — so DIFFERENT SIZES of one family never overwrite
+    each other's per-shard artifacts (raw_results.json / strategy_grid.json live at the
+    family-dir level, not the pair level, so a family-only dir would clobber). The
+    original 3 dead-heat runs published to ``<family>-strategies/`` and are untouched;
+    only the AL-key path is new. Falls back to the family dir if the AL key is unknown."""
     al_key = next(iter(pairs))[0] if pairs else None
+    if al_key and al_key in model_cfgs:
+        return Path(out_root) / f"{al_key}-strategies"
     al_family = model_cfgs[al_key].model_family if al_key in model_cfgs else None
     family = al_family if al_family in _KNOWN_FAMILIES else "gpt2"
     return Path(out_root) / f"{family}-strategies"
