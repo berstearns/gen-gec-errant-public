@@ -281,6 +281,69 @@ def verify_finetune(al_path: str, control_hf_id: str, *, eps: float = 1e-3) -> d
     return verdict
 
 
+# ── run identity: fail loud rather than inherit a demo default ──────────────
+
+def _identity_guard(pairs, item_range, log=print) -> None:
+    """Refuse a run whose model identity was INHERITED rather than DECLARED.
+
+    Cell 4's ``_PAIRS_DEFAULT`` (``ft-gpt2-small``) is a legitimate default for the
+    PUBLIC twin — a stranger with only the small checkpoint can run it. It is NOT a
+    legitimate default for a baked shard twin, whose filename *is* the claim
+    "gpt2-medium, rows 4538-9076". There, a lost ``GGE_PAIRS`` (a baker regression, a
+    clobbered .env) does not crash: it silently runs the SMALL model, publishes to a
+    DIFFERENT directory (``gpt2-strategies/`` not ``ft-gpt2-medium-strategies/``) so
+    nothing even collides, and leaves a valid-looking artifact whose only dissent from
+    its own filename is a ``model`` field nobody re-reads. Pool four such shards and
+    you have silently mixed models.
+
+    A default is legitimate only where the default is a CORRECT answer. Where the
+    value defines the artifact's identity, absence must raise. Two checks:
+
+    * ``GGE_EXPECT_PAIRS`` (baked by the shard baker next to ``GGE_PAIRS``) must match
+      the pairs actually resolved — catches a bake that set one and not the other.
+    * a SHARDED run (``item_range`` set ⇒ a baked twin, never the public demo) with no
+      ``GGE_PAIRS`` in the environment is inheriting the default: refuse.
+    """
+    resolved = [f"{al}:{ctrl}" for al, ctrl in pairs]
+    expect = os.environ.get("GGE_EXPECT_PAIRS", "").strip()
+    if expect:
+        want = [x.strip() for x in expect.split(",") if x.strip()]
+        if want != resolved:
+            raise RuntimeError(
+                f"RUN IDENTITY MISMATCH: baked GGE_EXPECT_PAIRS={want} but resolved "
+                f"PAIRS={resolved}. The notebook is about to run a different model than "
+                f"the one this twin was baked for. Refusing."
+            )
+        log(f"[identity] ✅ declared == resolved: {resolved}")
+    elif item_range is not None and not os.environ.get("GGE_PAIRS", "").strip():
+        raise RuntimeError(
+            "RUN IDENTITY UNDECLARED: this is a sharded run (item_range set ⇒ a baked "
+            "twin) but GGE_PAIRS is absent, so PAIRS fell back to the public demo "
+            f"default {resolved}. A shard twin must declare its model, not inherit it. "
+            "Refusing rather than publishing a mislabelled artifact."
+        )
+
+
+def _model_identity(key: str, mc: "ModelConfig", model) -> dict:
+    """Physical fingerprint of the model that ACTUALLY ran, for the run manifest.
+
+    ``n_params`` is the field that makes "which model produced this?" answerable from
+    the artifact alone: gpt2-small is 124M and gpt2-medium is 355M, so no forensic
+    perplexity comparison against a sibling run is needed to tell them apart. Everything
+    here is read off the loaded object, not off the config we asked for."""
+    cfg = getattr(model, "config", None)
+    return {
+        "registry_key": key,
+        "resolved_path": str(mc.hf_model_id),      # brokered checkpoint dir, or HF id
+        "n_params": int(sum(p.numel() for p in model.parameters())),
+        "model_type": getattr(cfg, "model_type", None),
+        "n_layer": getattr(cfg, "n_layer", None) or getattr(cfg, "num_hidden_layers", None),
+        "n_embd": getattr(cfg, "n_embd", None) or getattr(cfg, "hidden_size", None),
+        "vocab_size": getattr(cfg, "vocab_size", None),
+        "is_learner_tuned": bool(mc.is_learner_tuned),
+    }
+
+
 # ── orchestration ───────────────────────────────────────────────────────────
 
 _KNOWN_FAMILIES = {"gpt2", "smollm2", "pythia"}
@@ -316,6 +379,7 @@ def run_experiment(pairs, model_paths: Dict[str, str], model_cfgs: Dict[str, Mod
     session costs one shard, not the run. Use with max_sentences=None so every shard slices the
     same full list; point each shard at its OWN out_root (the caller owns dir naming)."""
     device = device or get_device("auto")
+    _identity_guard(pairs, item_range, log=log)   # declared-not-inherited, BEFORE any GPU spend
     dl = DataLoaderConfig(data_path=dataset_path, text_column="text", max_sentences=max_sentences,
                           min_words=10, max_words=500, prompt_ratio=0.5, min_prompt_words=5)
     items = run_data_loader(dl)
@@ -337,6 +401,7 @@ def run_experiment(pairs, model_paths: Dict[str, str], model_cfgs: Dict[str, Mod
     # 1) generation for every source (model loaded once → all strategies → freed)
     gen_by_source: Dict[str, Dict[str, dict]] = {}
     ppl_by_source: Dict[str, Dict[str, list]] = {}
+    identity: Dict[str, dict] = {}                 # what ACTUALLY loaded, per source
     for key in sources:
         mc = model_cfgs[key]
         mc = ModelConfig(name=mc.name, hf_model_id=model_paths.get(key, mc.hf_model_id),
@@ -346,6 +411,9 @@ def run_experiment(pairs, model_paths: Dict[str, str], model_cfgs: Dict[str, Mod
         if device.type == "cuda":
             torch.cuda.manual_seed_all(seed)
         model, tok = load_model(mc, device)
+        identity[key] = _model_identity(key, mc, model)
+        log(f"[identity] {key}: n_params={identity[key]['n_params']:,} "
+            f"type={identity[key]['model_type']} path={identity[key]['resolved_path']}")
         gen = generate_all_strategies(model, tok, prompts, references, device,
                                       batch_size=model_cfgs[key].batch_size)
         ppl = {}
@@ -409,8 +477,24 @@ def run_experiment(pairs, model_paths: Dict[str, str], model_cfgs: Dict[str, Mod
             row["stop_dist"] = {r: sr.count(r) for r in set(sr)}
             grid.append(row)
             log(f"[strategies] two_signal {s} {al}:{ctrl} → {ana}")
+    # ── run manifest: the artifact answers "which model produced this?" by itself ──
+    # Without this, proving a published shard really ran gpt2-medium (and not the demo
+    # default) takes forensics: hash prompts.json against a sibling run and argue from a
+    # 4x perplexity gap. n_params (124M vs 355M) settles it from the file.
+    manifest = {
+        "pairs": [f"{al}:{ctrl}" for al, ctrl in pairs],
+        "declared_pairs": os.environ.get("GGE_EXPECT_PAIRS", "") or None,
+        "item_range": list(item_range) if item_range else None,
+        "n_items": len(items), "seed": seed, "strategies": list(STRATEGIES),
+        "gec_model_id": gec_model_id, "device": str(device),
+        "models": identity,
+    }
+    json.dump(_json_safe(manifest), open(out_base / "run_manifest.json", "w"), indent=2, default=str)
+    log(f"[strategies] wrote run manifest → {out_base / 'run_manifest.json'}")
+
     result = {"grid": grid, "strategy_dirs": {s: str(d) for s, d in strat_dirs.items()},
-              "n_items": len(items), "n_scored": len(items), "seed": seed, "gec_model_id": gec_model_id}
+              "n_items": len(items), "n_scored": len(items), "seed": seed, "gec_model_id": gec_model_id,
+              "run_manifest": manifest}
     json.dump(_json_safe(result), open(out_base / "strategy_grid.json", "w"), indent=2, default=str)
     return result
 
